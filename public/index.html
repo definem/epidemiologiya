@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Epidemiologiya — Mentor paneli</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- Kirish oynasi (mentor paroli) -->
+<div class="overlay" id="login">
+  <div class="card modal">
+    <div style="font-size:40px">🌸</div>
+    <h2>Mentor paneli</h2>
+    <p style="color:var(--soft)">Davom etish uchun parolni kiriting</p>
+    <div class="field"><input type="password" id="pw" placeholder="Parol" autocomplete="current-password"></div>
+    <div class="err" id="loginErr" style="display:none"></div>
+    <button class="btn" id="loginBtn" style="width:100%;justify-content:center">Kirish</button>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="flower">🌸 🌷 🌸</div>
+  <h1>Epidemiologiya <em>fani</em></h1>
+  <p>Mentor paneli — mavzular, o‘quvchilar uchun havolalar va natijalar statistikasi</p>
+  <div class="divider"></div>
+  <div style="margin-top:14px"><button class="btn ghost small" id="logout" style="display:none">Chiqish</button></div>
+</header>
+
+<div class="wrap" id="app"></div>
+
+<script>
+/* ============ MENTOR SAHIFASI (old qism) ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let token = localStorage.getItem('mtoken') || '';
+let currentTab = null;
+
+async function api(url, opt = {}) {
+  let r;
+  try { r = await fetch(url, { ...opt, headers: { 'Content-Type': 'application/json', 'x-token': token, ...(opt.headers || {}) } }); }
+  catch (e) { throw new Error('Server bilan aloqa yo‘q. Internetni tekshirib, sahifani yangilang.'); }
+  if (r.status === 401 && url !== '/api/login') { showLogin(); throw new Error('Qaytadan kiring'); }
+  const d = await r.json().catch(() => null);
+  if (d === null) throw new Error('Server javob bermadi. Sahifani yangilab, qayta urinib ko‘ring.');
+  if (!r.ok) throw new Error(d.error || 'Xatolik yuz berdi');
+  return d;
+}
+
+/* ---- Kirish ---- */
+function showLogin() { $('#login').classList.add('show'); $('#logout').style.display = 'none'; setTimeout(() => $('#pw').focus(), 50); }
+async function doLogin() {
+  try {
+    const d = await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
+    token = d.token; localStorage.setItem('mtoken', token);
+    $('#login').classList.remove('show'); $('#pw').value = ''; $('#loginErr').style.display = 'none';
+    $('#logout').style.display = ''; route();
+  } catch (e) { const el = $('#loginErr'); el.textContent = e.message; el.style.display = 'block'; }
+}
+$('#loginBtn').onclick = doLogin;
+$('#pw').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
+$('#logout').onclick = () => { token = ''; localStorage.removeItem('mtoken'); $('#app').innerHTML = ''; showLogin(); };
+
+/* ---- Yo'naltirish ---- */
+window.addEventListener('hashchange', route);
+async function route() {
+  if (!token) return showLogin();
+  $('#logout').style.display = '';
+  const m = location.hash.match(/^#\/topic\/(\w+)/);
+  try { m ? await topicView(m[1]) : await listView(); } catch (e) { if (e.message !== 'Qaytadan kiring') $('#app').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  window.scrollTo(0, 0);
+}
+
+/* ---- 1) Mavzular ro'yxati ---- */
+async function listView() {
+  const [topics, groups] = await Promise.all([api('/api/topics'), api('/api/groups')]);
+  $('#app').innerHTML = `
+    <h2 class="section-title" style="margin-top:6px">📚 Mavzular</h2>
+    <div class="grid">
+      ${topics.map(t => `
+        <a class="card topic-card" href="#/topic/${t.id}" style="--c:${t.color}">
+          <span class="ico">${t.icon}</span>
+          <span class="badge">№ ${esc(t.id)} · ${t.hours} soat</span>
+          <h3>${esc(t.title)}</h3>
+          <p>${esc(t.syllabus)}</p>
+        </a>`).join('')}
+    </div>
+
+    <h2 class="section-title">👩‍🎓 Guruhlar</h2>
+    <div class="card">
+      <p style="margin-top:0;color:var(--soft)">O‘quvchilar testni ishlayotganda shu ro‘yxatdan o‘z guruhini tanlaydi. Avval guruhlarni qo‘shing.</p>
+      <div class="inline-form">
+        <input id="gname" placeholder="Guruh nomi (masalan: 101-guruh)" maxlength="40">
+        <button class="btn" id="gadd">＋ Qo‘shish</button>
+      </div>
+      <div class="chips" id="chips">${chips(groups)}</div>
+    </div>
+    <div class="footer">🌸 Muvaffaqiyatli dars bo‘lsin 🌸</div>`;
+  $('#gadd').onclick = addGroup;
+  $('#gname').onkeydown = e => { if (e.key === 'Enter') addGroup(); };
+  bindChips();
+}
+const chips = gs => gs.length ? gs.map(g => `<span class="chip">${esc(g.name)}<button data-del="${g.id}" title="O‘chirish">×</button></span>`).join('') : '<span class="empty">Hali guruh qo‘shilmagan</span>';
+function bindChips() {
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('Guruh va uning barcha natijalari o‘chiriladi. Davom etasizmi?')) return;
+    await api('/api/groups/' + b.dataset.del, { method: 'DELETE' }); listView();
+  });
+}
+async function addGroup() {
+  const name = $('#gname').value.trim(); if (!name) return;
+  try { await api('/api/groups', { method: 'POST', body: JSON.stringify({ name }) }); listView(); } catch (e) { alert(e.message); }
+}
+
+/* ---- 2) Bitta mavzu sahifasi ---- */
+async function topicView(id) {
+  const t = await api('/api/topics/' + id);
+  const base = location.origin;
+  const guideUrl = `${base}/guide.html?topic=${t.id}`;
+  const testUrl = `${base}/student.html?topic=${t.id}&kind=test`;
+  const caseUrl = `${base}/student.html?topic=${t.id}&kind=case`;
+
+  $('#app').innerHTML = `
+    <a class="back" href="#/">← Barcha mavzular</a>
+    <div class="card topic-head" style="--c:${t.color}">
+      <span class="badge" style="--c:${t.color}">${t.icon} № ${esc(t.id)} · ${t.hours} soat</span>
+      <h2>${esc(t.title)}</h2>
+    </div>
+
+    <!-- Sahifa tepasida: O'quvchilar uchun mavzu qo'llanmasi -->
+    <div class="guide-link">
+      <a class="btn lav" href="${guideUrl}" target="_blank">📖 O‘quvchilar uchun mavzu qo‘llanmasi</a>
+      <button class="btn ghost small" data-copy="${guideUrl}">🔗 Havolani nusxalash</button>
+      <span style="color:var(--soft);font-size:14px">Bu havolani o‘quvchilarga darslik sifatida yuboring</span>
+    </div>
+
+    <h2 class="section-title">📋 Mavzu rejasi</h2>
+    <div class="card" style="white-space:pre-line">${esc(t.syllabus)}</div>
+
+    <h2 class="section-title">📝 Mavzu bo‘yicha ma’lumotlar</h2>
+    <div class="card content">${t.content.replace(/<!--[\s\S]*?-->/g, '').trim() || '<div class="empty">Bu mavzu bo‘yicha ma’lumot hali qo‘shilmagan.</div>'}</div>
+
+    <h2 class="section-title">🔗 O‘quvchilar uchun test havolalari</h2>
+    <div class="links">
+      <div class="linkbox">
+        <b>✅ Test (${t.testCount} ta savol)</b>
+        <code>${testUrl}</code>
+        <div class="row"><button class="btn small" data-copy="${testUrl}">Nusxalash</button><a class="btn ghost small" href="${testUrl}" target="_blank">Ochib ko‘rish</a></div>
+      </div>
+      <div class="linkbox">
+        <b>🩺 Vaziyatli masalalar (${t.caseCount} ta)</b>
+        <code>${caseUrl}</code>
+        <div class="row"><button class="btn small" data-copy="${caseUrl}">Nusxalash</button><a class="btn ghost small" href="${caseUrl}" target="_blank">Ochib ko‘rish</a></div>
+      </div>
+    </div>
+    <p class="note">Har bir o‘quvchi har bir havola bo‘yicha faqat <b>2 marta</b> ishlay oladi. Ikkinchi urinish birinchisidan <b>40 daqiqa</b> o‘tgach ochiladi.</p>
+
+    <h2 class="section-title">📊 O‘quvchilar natijalari</h2>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <div class="tabs" id="tabs" style="margin:0"></div>
+        <button class="btn ghost small" id="refresh">🔄 Yangilash</button>
+      </div>
+      <div id="stats"></div>
+    </div>`;
+
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copy(b.dataset.copy, b));
+  $('#refresh').onclick = () => loadStats(id);
+  currentTab = null;
+  loadStats(id);
+}
+
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); } catch { prompt('Havolani nusxalang:', text); }
+  const old = btn.textContent; btn.textContent = '✓ Nusxalandi'; setTimeout(() => btn.textContent = old, 1500);
+}
+
+/* ---- Statistika jadvali ---- */
+const pill = p => p == null ? '<span class="pill n">—</span>' : `<span class="pill ${p >= 86 ? 'g' : p >= 71 ? 'y' : 'r'}">${p}%</span>`;
+const best = a => a.length ? Math.max(...a) : null;
+function cell(a) {
+  if (!a.length) return '<span class="pill n">—</span>';
+  return pill(best(a)) + `<span class="sub">${a.length} urinish: ${a.map(x => x + '%').join(' → ')}</span>`;
+}
+async function loadStats(topicId) {
+  const groups = await api('/api/stats/' + topicId);
+  const box = $('#stats');
+  if (!groups.length) { $('#tabs').innerHTML = ''; box.innerHTML = '<div class="empty">Avval guruh qo‘shing (bosh sahifada “Guruhlar”).</div>'; return; }
+  if (!currentTab || !groups.some(g => g.id === currentTab)) currentTab = groups[0].id;
+  $('#tabs').innerHTML = groups.map(g => `<button class="tab ${g.id === currentTab ? 'on' : ''}" data-g="${g.id}">${esc(g.name)} <small>(${g.students.length})</small></button>`).join('');
+  document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { currentTab = b.dataset.g; loadStats(topicId); });
+
+  const g = groups.find(x => x.id === currentTab);
+  if (!g.students.length) { box.innerHTML = '<div class="empty">Bu guruhdan hali hech kim ishlamagan.</div>'; return; }
+  const avgs = [];
+  const rows = g.students.map((s, i) => {
+    const parts = [best(s.test), best(s.case)].filter(x => x != null);
+    const avg = parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) / parts.length) : null;
+    if (avg != null) avgs.push(avg);
+    return `<tr><td>${i + 1}</td><td><b>${esc(s.name)}</b></td><td>${cell(s.test)}</td><td>${cell(s.case)}</td><td>${pill(avg)}</td></tr>`;
+  }).join('');
+  const groupAvg = avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
+  box.innerHTML = `
+    <div class="tablewrap"><table class="stat">
+      <thead><tr><th>№</th><th>Ism familiya</th><th>Test</th><th>Vaziyatli masala</th><th>O‘rtacha</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <p style="margin:12px 2px 0;color:var(--soft);font-size:14px">Jadvalda eng yaxshi natija ko‘rsatilgan. Guruh o‘rtachasi: ${pill(groupAvg)}
+    &nbsp; <span class="pill g">86%+</span> <span class="pill y">71–85%</span> <span class="pill r">70% va past</span></p>`;
+}
+
+/* Boshlash */
+if (token) { route(); } else { showLogin(); }
+</script>
+</body>
+</html>

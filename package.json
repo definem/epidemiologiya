@@ -1,0 +1,16 @@
+{
+  "name": "epidemiologiya-mentor-sayti",
+  "version": "1.0.0",
+  "description": "Mentor uchun mavzular, testlar va o'quvchilar statistikasi sayti",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "@upstash/redis": "^1.34.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

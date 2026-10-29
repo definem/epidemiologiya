@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mavzu qo'llanmasi</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="flower">🌸 📖 🌸</div>
+  <h1 id="h">Mavzu <em>qo‘llanmasi</em></h1>
+  <p id="sub">O‘quvchilar uchun darslik</p>
+  <div class="divider"></div>
+</header>
+<div class="wrap" id="app"><div class="empty">Yuklanmoqda…</div></div>
+
+<script>
+/* ============ O'QUVCHILAR UCHUN QO'LLANMA ============
+   guide.html?topic=1  → 1-mavzu qo'llanmasi (mentor sahifasidagi ma'lumotlar bilan bir xil)
+   guide.html          → barcha mavzular ro'yxati */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const id = new URLSearchParams(location.search).get('topic');
+
+(async () => {
+  try {
+    if (!id) {
+      const topics = await (await fetch('/api/topics')).json();
+      $('#app').innerHTML = `<div class="grid">${topics.map(t => `
+        <a class="card topic-card" href="?topic=${t.id}" style="--c:${t.color}">
+          <span class="ico">${t.icon}</span><span class="badge">№ ${esc(t.id)} · ${t.hours} soat</span>
+          <h3>${esc(t.title)}</h3><p>${esc(t.syllabus)}</p></a>`).join('')}</div>`;
+      return;
+    }
+    const r = await fetch('/api/topics/' + encodeURIComponent(id));
+    if (!r.ok) throw new Error('Mavzu topilmadi');
+    const t = await r.json();
+    document.title = t.id + '-mavzu qo‘llanmasi';
+    $('#sub').textContent = '№ ' + t.id + ' · ' + t.hours + ' soat';
+    $('#app').innerHTML = `
+      <div class="card topic-head" style="--c:${t.color}"><span class="badge" style="--c:${t.color}">${t.icon} № ${esc(t.id)}</span><h2>${esc(t.title)}</h2></div>
+      <h2 class="section-title">📋 Mavzu rejasi</h2>
+      <div class="card" style="white-space:pre-line">${esc(t.syllabus)}</div>
+      <h2 class="section-title">📝 Mavzu bo‘yicha ma’lumotlar</h2>
+      <div class="card content">${t.content.replace(/<!--[\s\S]*?-->/g, '').trim() || '<div class="empty">Ma’lumotlar tez orada qo‘shiladi.</div>'}</div>
+      <div class="footer">🌸 Omad yor bo‘lsin 🌸</div>`;
+  } catch (e) { $('#app').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+})();
+</script>
+</body>
+</html>
